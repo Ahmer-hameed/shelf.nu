@@ -29,10 +29,23 @@ export function generateWhereClause(
   }
 
   if (search) {
-    const words = search.trim().split(/\s+/).filter(Boolean);
+    const words = search
+      .trim()
+      .split(",")
+      .map((term) => term.trim())
+      .filter(Boolean);
+
     if (words.length > 0) {
-      const searchPattern = `%${words.join("%")}%`;
-      whereClause = Prisma.sql`${whereClause} AND a."title" ILIKE ${searchPattern}`;
+      // Create OR conditions for each search term
+      const searchConditions = words.map(
+        (term) => Prisma.sql`a.title ILIKE ${`%${term}%`}`
+      );
+
+      // Combine all search terms with OR
+      whereClause = Prisma.sql`${whereClause} AND (${Prisma.join(
+        searchConditions,
+        " OR "
+      )})`;
     }
   }
 
@@ -787,6 +800,27 @@ function addArrayFilter(whereClause: Prisma.Sql, filter: Filter): Prisma.Sql {
       const values = (filter.value as string).split(",").map((v) => v.trim());
       const valuesArray = `{${values.map((v) => `"${v}"`).join(",")}}`;
       return Prisma.sql`${whereClause} AND LOWER(t.name) = ANY(ARRAY(SELECT LOWER(unnest(${valuesArray}::text[]))))`;
+    }
+    case "excludeAny": {
+      // Exclude assets that have ANY of the specified tags
+      const values = (filter.value as string).split(",").map((v) => v.trim());
+
+      if (values.includes("untagged")) {
+        // If "untagged" is included, we want to ensure assets have at least one tag
+        return Prisma.sql`${whereClause} AND EXISTS (
+          SELECT 1 FROM "_AssetToTag" att2 
+          WHERE att2."A" = a.id
+        )`;
+      }
+
+      const valuesArray = `{${values.map((v) => `"${v}"`).join(",")}}`;
+      return Prisma.sql`${whereClause} AND NOT EXISTS (
+        SELECT 1 
+        FROM "_AssetToTag" att2
+        JOIN "Tag" t2 ON t2.id = att2."B"
+        WHERE att2."A" = a.id 
+        AND t2.name = ANY(${valuesArray}::text[])
+      )`;
     }
     default:
       return whereClause;

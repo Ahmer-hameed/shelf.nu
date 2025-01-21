@@ -39,7 +39,6 @@ import {
   type AssetIndexLoaderData,
 } from "~/routes/_layout+/assets._index";
 import { getCustomFieldDisplayValue } from "~/utils/custom-fields";
-import { markSubstring } from "~/utils/mark-substring";
 import { isLink } from "~/utils/misc";
 import {
   PermissionAction,
@@ -51,6 +50,8 @@ import { resolveTeamMemberName } from "~/utils/user";
 import { freezeColumnClassNames } from "./freeze-column-classes";
 import { AssetImage } from "../asset-image";
 import { AssetStatusBadge } from "../asset-status-badge";
+import { QrPreviewDialog } from "../qr-preview-dialog";
+import AssetQuickActions from "./asset-quick-actions";
 
 export function AdvancedIndexColumn({
   column,
@@ -149,7 +150,7 @@ export function AdvancedIndexColumn({
                   className="font-medium underline hover:text-gray-600"
                   title={item.title}
                 >
-                  {markSubstring(item.title)}
+                  {item.title}
                 </Link>
               </div>
             </div>
@@ -158,8 +159,19 @@ export function AdvancedIndexColumn({
       );
 
     case "id":
-    case "qrId":
       return <TextColumn value={item[column]} />;
+
+    case "qrId":
+      return (
+        <QrPreviewDialog
+          asset={item}
+          trigger={
+            <Td className="w-full max-w-none !overflow-visible whitespace-nowrap">
+              <Button variant="link-gray">{item.qrId}</Button>
+            </Td>
+          }
+        />
+      );
 
     case "status":
       return <StatusColumn status={item.status} />;
@@ -190,13 +202,14 @@ export function AdvancedIndexColumn({
         <TextColumn
           value={
             item?.location?.name ? (
-              <Link
+              <Button
                 to={`/locations/${item.locationId}`}
-                className="block max-w-[220px] truncate font-medium underline hover:text-gray-600"
                 title={item.location.name}
+                target="_blank"
+                variant="link-gray"
               >
                 {item.location.name}
-              </Link>
+              </Button>
             ) : (
               ""
             )
@@ -228,6 +241,13 @@ export function AdvancedIndexColumn({
 
     case "availableToBook":
       return <TextColumn value={item.availableToBook ? "Yes" : "No"} />;
+
+    case "actions":
+      return (
+        <Td>
+          <AssetQuickActions asset={item} />
+        </Td>
+      );
   }
 }
 

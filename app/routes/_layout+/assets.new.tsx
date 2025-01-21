@@ -181,6 +181,7 @@ export async function action({ context, request }: LoaderFunctionArgs) {
       request,
       assetId: asset.id,
       userId: authSession.userId,
+      organizationId,
     });
 
     sendNotification({
@@ -227,12 +228,13 @@ export default function NewAssetPage() {
 
   // Get category from URL params or use the default passed prop
   const categoryFromUrl = searchParams.get("category");
+
   return (
-    <>
+    <div className="relative">
       <Header title={title ? title : "Untitled Asset"} />
       <div>
         <AssetForm qrId={qrId} category={categoryFromUrl || undefined} />
       </div>
-    </>
+    </div>
   );
 }
