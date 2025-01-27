@@ -1,7 +1,9 @@
 import type { Asset, AssetStatus, Location, Prisma } from "@prisma/client";
 import { z } from "zod";
 import { filterOperatorSchema } from "~/components/assets/assets-index/advanced-filters/schema";
+import { getDateTimeFormat } from "~/utils/client-hints";
 import { getParamsValues } from "~/utils/list";
+import type { AdvancedIndexAsset } from "./types";
 import type { Column } from "../asset-index-settings/helpers";
 
 export function getLocationUpdateNoteContent({
@@ -206,6 +208,35 @@ export function validateAdvancedFilterParams(
   return validatedParams;
 }
 
+export function formatAssetsRemindersDates({
+  assets,
+  request,
+}: {
+  assets: AdvancedIndexAsset[];
+  request: Request;
+}) {
+  if (!assets.length) {
+    return assets;
+  }
+
+  return assets.map((asset) => {
+    if (!asset.upcomingReminder) {
+      return asset;
+    }
+
+    return {
+      ...asset,
+      upcomingReminder: {
+        ...asset.upcomingReminder,
+        displayDate: getDateTimeFormat(request, {
+          dateStyle: "short",
+          timeStyle: "short",
+        }).format(new Date(asset.upcomingReminder.alertDateTime)),
+      },
+    };
+  });
+}
+
 export const importAssetsSchema = z
   .object({
     title: z.string(),
@@ -215,7 +246,7 @@ export const importAssetsSchema = z
     tags: z.string().array(),
     location: z.string().optional(),
     custodian: z.string().optional(),
-    bookable: z.enum(["yes", "no"]).optional(),
+    bookable: z.enum(["yes", "no"]).optional().nullable(),
     imageUrl: z.string().url().optional(),
   })
   .and(z.record(z.string(), z.any()));

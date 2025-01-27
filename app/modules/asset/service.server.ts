@@ -98,10 +98,12 @@ import type {
   UpdateAssetPayload,
 } from "./types";
 import {
+  formatAssetsRemindersDates,
   getAssetsWhereInput,
   getLocationUpdateNoteContent,
 } from "./utils.server";
 import type { Column } from "../asset-index-settings/helpers";
+import { cancelAssetReminderScheduler } from "../asset-reminder/scheduler.server";
 import { createKitsIfNotExists } from "../kit/service.server";
 
 import { createNote } from "../note/service.server";
@@ -521,7 +523,7 @@ export async function getAdvancedPaginatedAndFilterableAssets({
       totalAssets,
       perPage: take,
       page,
-      assets,
+      assets: formatAssetsRemindersDates({ assets, request }),
       totalPages,
       cookie,
     };
@@ -903,9 +905,16 @@ export async function deleteAsset({
   organizationId,
 }: Pick<Asset, "id"> & { organizationId: Organization["id"] }) {
   try {
-    return await db.asset.deleteMany({
+    const deletedAsset = await db.asset.delete({
       where: { id, organizationId },
+      select: {
+        reminders: {
+          select: { alertDateTime: true, activeSchedulerReference: true },
+        },
+      },
     });
+
+    await Promise.all(deletedAsset.reminders.map(cancelAssetReminderScheduler));
   } catch (cause) {
     throw new ShelfError({
       cause,
@@ -921,11 +930,13 @@ export async function updateAssetMainImage({
   assetId,
   userId,
   organizationId,
+  isNewAsset = false,
 }: {
   request: Request;
   assetId: string;
   userId: User["id"];
   organizationId: Organization["id"];
+  isNewAsset?: boolean;
 }) {
   try {
     const fileData = await parseFileFormData({
@@ -955,7 +966,14 @@ export async function updateAssetMainImage({
       userId,
       organizationId,
     });
-    await deleteOtherImages({ userId, assetId, data: { path: image } });
+
+    /**
+     * If updateAssetMainImage is called from new asset route, then we don't have to delete other images
+     * bcause no others images for this assets exists yet.
+     */
+    if (!isNewAsset) {
+      await deleteOtherImages({ userId, assetId, data: { path: image } });
+    }
   } catch (cause) {
     throw new ShelfError({
       cause,
@@ -1093,6 +1111,7 @@ export function createCustomFieldsPayloadFromAsset(
     ) || {}
   );
 }
+
 export async function duplicateAsset({
   asset,
   userId,
@@ -2019,14 +2038,15 @@ export async function createAssetsFromBackupImport({
   }
 }
 
-export async function updateAssetBookingAvailability(
-  id: Asset["id"],
-  availability: Asset["availableToBook"]
-) {
+export async function updateAssetBookingAvailability({
+  id,
+  availableToBook,
+  organizationId,
+}: Pick<Asset, "id" | "availableToBook" | "organizationId">) {
   try {
     return await db.asset.update({
-      where: { id },
-      data: { availableToBook: availability },
+      where: { id, organizationId },
+      data: { availableToBook },
     });
   } catch (cause) {
     throw maybeUniqueConstraintViolation(cause, "Asset", {
@@ -2158,7 +2178,7 @@ export async function updateAssetQrCode({
     // Disconnect all existing QR codes
     await db.asset
       .update({
-        where: { id: assetId },
+        where: { id: assetId, organizationId },
         data: {
           qrCodes: {
             set: [],
@@ -2177,7 +2197,7 @@ export async function updateAssetQrCode({
     // Connect the new QR code
     return await db.asset
       .update({
-        where: { id: assetId },
+        where: { id: assetId, organizationId },
         data: {
           qrCodes: {
             connect: { id: newQrId },
@@ -2623,7 +2643,7 @@ export async function bulkAssignAssetTags({
 
     const updatePromises = _assetIds.map((id) =>
       db.asset.update({
-        where: { id },
+        where: { id, organizationId },
         data: {
           tags: {
             [remove ? "disconnect" : "connect"]: tagsIds.map((id) => ({ id })), // IDs of tags you want to connect
@@ -2700,7 +2720,7 @@ export async function relinkQrCode({
     getQr({ id: qrId }),
     getUserByID(userId),
     db.asset.findFirst({
-      where: { id: assetId },
+      where: { id: assetId, organizationId },
       select: { qrCodes: { select: { id: true } } },
     }),
   ]);
